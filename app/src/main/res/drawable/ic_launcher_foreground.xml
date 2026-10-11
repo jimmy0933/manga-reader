@@ -1,0 +1,81 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Hardcover base shadow -->
+    <path
+        android:pathData="M 54,43 Q 39,36 24,40 L 24,74 Q 39,70 54,77 Z"
+        android:fillColor="#312E81" />
+    <path
+        android:pathData="M 54,43 Q 69,36 84,40 L 84,74 Q 69,70 54,77 Z"
+        android:fillColor="#312E81" />
+
+    <!-- Pages block thickness -->
+    <path
+        android:pathData="M 54,41 Q 40,34 26,38 L 26,71 Q 40,67 54,74 Z"
+        android:fillColor="#E2E8F0" />
+    <path
+        android:pathData="M 54,41 Q 68,34 82,38 L 82,71 Q 68,67 54,74 Z"
+        android:fillColor="#CBD5E1" />
+
+    <!-- Open comic pages surface -->
+    <path
+        android:pathData="M 54,39 Q 40,32 27,35.5 L 27,68 Q 40,64.5 54,71.5 Z"
+        android:fillColor="#FFFFFF" />
+    <path
+        android:pathData="M 54,39 Q 68,32 81,35.5 L 81,68 Q 68,64.5 54,71.5 Z"
+        android:fillColor="#F8FAFC" />
+
+    <!-- Center spine groove -->
+    <path
+        android:pathData="M 53.5,39 L 54.5,39 L 54.5,72 L 53.5,72 Z"
+        android:fillColor="#94A3B8" />
+
+    <!-- Manga panels on Left Page (分鏡格) -->
+    <!-- Top panel -->
+    <path
+        android:pathData="M 31,41 Q 39,39 49,41 L 49,52 Q 39,50 31,52 Z"
+        android:fillColor="#F1F5F9"
+        android:strokeColor="#334155"
+        android:strokeWidth="1.2" />
+    <!-- Bottom left panel -->
+    <path
+        android:pathData="M 31,55 Q 35,54 39,55 L 39,64 Q 35,63 31,64 Z"
+        android:fillColor="#F1F5F9"
+        android:strokeColor="#334155"
+        android:strokeWidth="1.2" />
+    <!-- Bottom right panel -->
+    <path
+        android:pathData="M 41,55 Q 45,54 49,55 L 49,64 Q 45,63 41,64 Z"
+        android:fillColor="#F1F5F9"
+        android:strokeColor="#334155"
+        android:strokeWidth="1.2" />
+
+    <!-- Manga panels on Right Page (分鏡格) -->
+    <!-- Top right panel -->
+    <path
+        android:pathData="M 59,41 Q 69,39 77,41 L 77,50 Q 69,48 59,50 Z"
+        android:fillColor="#F1F5F9"
+        android:strokeColor="#334155"
+        android:strokeWidth="1.2" />
+    <!-- Bottom wide panel -->
+    <path
+        android:pathData="M 59,53 Q 69,51 77,53 L 77,64 Q 69,62 59,64 Z"
+        android:fillColor="#F1F5F9"
+        android:strokeColor="#334155"
+        android:strokeWidth="1.2" />
+
+    <!-- Comic Speech Bubble or Flash Icon over center -->
+    <path
+        android:pathData="M 68,36 C 68,32 75,32 75,36 C 75,38 73,39 71,41 L 70,44 L 69,41 C 67,40 68,38 68,36 Z"
+        android:fillColor="#F59E0B" />
+
+    <!-- Bookmark ribbon -->
+    <path
+        android:pathData="M 52,36 L 56,36 L 56,78 L 54,75.5 L 52,78 Z"
+        android:fillColor="#E11D48" />
+
+</vector>
