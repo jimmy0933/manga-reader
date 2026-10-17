@@ -19,8 +19,7 @@ class MangaApplication : Application(), ImageLoaderFactory {
         val database = MangaDatabase.getDatabase(this)
         repository = MangaRepository(
             context = this,
-            mangaDao = database.mangaDao(),
-            chapterDao = database.mangaChapterDao()
+            database = database
         )
     }
 
