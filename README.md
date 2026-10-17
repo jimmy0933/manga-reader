@@ -1,3 +1,5 @@
+![Android CI Build](https://github.com/jimmy0933/manga-reader/actions/workflows/android-build.yml/badge.svg)
+
 # Manga Reader (漫畫閱讀與離線下載 Android App)
 
 本專案為使用 **Kotlin + Jetpack Compose + Room + WorkManager** 開發的 Android 漫畫閱讀器，專門支援漫畫人（manhuaren.com）漫畫解析、章節離線快取下載與流暢閱讀。
@@ -45,3 +47,14 @@
    ```
 2. 等待 Gradle Sync 完成。
 3. 點擊 **Run** 或執行 `./gradlew assembleRelease` 即可編譯安裝。
+
+## 如何下載安裝檔 (APK)
+
+您可以透過 GitHub Actions 自動建置的 Artifact 下載最新的 APK：
+1. 進入專案的 **[Actions](https://github.com/jimmy0933/manga-reader/actions)** 頁籤。
+2. 點選最新的成功工作 (Workflow run)。
+3. 捲動至最下方的 **Artifacts** 區塊，點選 `app-debug-...` 或 `app-release-unsigned-...` 進行下載。
+4. 下載後解壓縮得到的 `.apk` 檔案即可傳至手機安裝。
+
+**⚠️ 簽章注意事項 (Release APK)**：
+目前的 Release APK 暫時使用 debug signing，不具備正式的上架簽章金鑰。請注意這並不代表應用程式具有正式簽章，僅供測試與開發環境安裝。
