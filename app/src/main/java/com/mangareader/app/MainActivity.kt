@@ -80,14 +80,12 @@ class MainActivity : ComponentActivity() {
                             chapters = chapters,
                             downloadStatus = downloadStatus,
                             onBack = { navController.popBackStack() },
-                            onChapterClick = { index ->
-                                navController.navigate("manga_reader/$mangaId/$index")
+                            onChapterClick = { chapterId ->
+                                navController.navigate("manga_reader/$mangaId/$chapterId")
                             },
                             onDownloadAll = {
-                                lifecycleScope.launch {
-                                    Toast.makeText(this@MainActivity, "已在背景開始整部下載！", Toast.LENGTH_SHORT).show()
-                                    repository.downloadAllChapters(mangaId)
-                                }
+                                android.widget.Toast.makeText(this@MainActivity, "已加入背景下載佇列！", android.widget.Toast.LENGTH_SHORT).show()
+                                repository.downloadAllChapters(mangaId)
                             },
                             onSyncLatestChapters = {
                                 lifecycleScope.launch {
@@ -110,18 +108,18 @@ class MainActivity : ComponentActivity() {
 
                     // 3. 漫畫閱讀器
                     composable(
-                        "manga_reader/{mangaId}/{chapterIndex}",
+                        "manga_reader/{mangaId}/{chapterId}",
                         arguments = listOf(
                             navArgument("mangaId") { type = NavType.StringType },
-                            navArgument("chapterIndex") { type = NavType.IntType }
+                            navArgument("chapterId") { type = NavType.StringType }
                         )
                     ) { backStackEntry ->
                         val mangaId = backStackEntry.arguments?.getString("mangaId") ?: return@composable
-                        val chapterIndex = backStackEntry.arguments?.getInt("chapterIndex") ?: 0
+                        val chapterId = backStackEntry.arguments?.getString("chapterId") ?: ""
 
                         MangaReaderScreen(
                             mangaId = mangaId,
-                            initialChapterIndex = chapterIndex,
+                            initialChapterId = chapterId,
                             repository = repository,
                             onBack = { navController.popBackStack() }
                         )

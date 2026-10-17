@@ -30,7 +30,7 @@ fun MangaDetailScreen(
     chapters: List<MangaChapterEntity>,
     downloadStatus: MangaDownloadStatus?,
     onBack: () -> Unit,
-    onChapterClick: (Int) -> Unit,
+    onChapterClick: (String) -> Unit,
     onDownloadAll: () -> Unit,
     onSyncLatestChapters: () -> Unit
 ) {
@@ -184,7 +184,7 @@ fun MangaDetailScreen(
                         Spacer(modifier = Modifier.height(12.dp))
 
                         // 繼續閱讀按鈕（秒開至之前看的章節與頁數）
-                        val lastIndex = manga.lastReadChapterIndex.coerceIn(0, (chapters.size - 1).coerceAtLeast(0))
+                        val lastChapterId = manga.lastReadChapterId ?: chapters.lastOrNull()?.chapterId ?: ""
                         val readBtnText = if (!manga.lastReadChapterTitle.isNullOrBlank()) {
                             "繼續閱讀：${manga.lastReadChapterTitle} (第 ${manga.lastReadPageIndex + 1} 頁)"
                         } else {
@@ -192,7 +192,7 @@ fun MangaDetailScreen(
                         }
 
                         Button(
-                            onClick = { onChapterClick(lastIndex) },
+                            onClick = { onChapterClick(lastChapterId) },
                             modifier = Modifier.fillMaxWidth(),
                             colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                         ) {
@@ -283,7 +283,7 @@ fun MangaDetailScreen(
                                     )
                                 }
                             },
-                            modifier = Modifier.clickable { onChapterClick(ch.chapterIndex) }
+                            modifier = Modifier.clickable { onChapterClick(ch.chapterId) }
                         )
                         HorizontalDivider(thickness = 0.5.dp, color = MaterialTheme.colorScheme.surfaceVariant)
                     }

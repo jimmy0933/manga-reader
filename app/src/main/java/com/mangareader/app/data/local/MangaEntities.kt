@@ -22,7 +22,7 @@ data class MangaEntity(
     val isFavorite: Boolean = true
 )
 
-@Entity(tableName = "manga_chapters", primaryKeys = ["mangaId", "chapterIndex"])
+@Entity(tableName = "manga_chapters", primaryKeys = ["mangaId", "chapterId"])
 data class MangaChapterEntity(
     val mangaId: String,
     val chapterIndex: Int,

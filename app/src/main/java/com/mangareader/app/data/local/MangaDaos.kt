@@ -44,17 +44,17 @@ interface MangaChapterDao {
     @Query("SELECT * FROM manga_chapters WHERE mangaId = :mangaId ORDER BY chapterIndex ASC")
     suspend fun getChapters(mangaId: String): List<MangaChapterEntity>
 
-    @Query("SELECT * FROM manga_chapters WHERE mangaId = :mangaId AND chapterIndex = :index")
-    suspend fun getChapterByIndex(mangaId: String, index: Int): MangaChapterEntity?
+    @Query("SELECT * FROM manga_chapters WHERE mangaId = :mangaId AND chapterId = :chapterId")
+    suspend fun getChapterById(mangaId: String, chapterId: String): MangaChapterEntity?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertChapters(chapters: List<MangaChapterEntity>)
 
-    @Query("UPDATE manga_chapters SET imageUrlsJson = :imagesJson, pageCount = :pageCount WHERE mangaId = :mangaId AND chapterIndex = :index")
-    suspend fun saveChapterImages(mangaId: String, index: Int, imagesJson: String, pageCount: Int)
+    @Query("UPDATE manga_chapters SET imageUrlsJson = :imagesJson, pageCount = :pageCount WHERE mangaId = :mangaId AND chapterId = :chapterId")
+    suspend fun saveChapterImages(mangaId: String, chapterId: String, imagesJson: String, pageCount: Int)
 
-    @Query("UPDATE manga_chapters SET localImagePathsJson = :localPathsJson, isDownloaded = 1 WHERE mangaId = :mangaId AND chapterIndex = :index")
-    suspend fun saveChapterDownloadPaths(mangaId: String, index: Int, localPathsJson: String)
+    @Query("UPDATE manga_chapters SET localImagePathsJson = :localPathsJson, isDownloaded = 1 WHERE mangaId = :mangaId AND chapterId = :chapterId")
+    suspend fun saveChapterDownloadPaths(mangaId: String, chapterId: String, localPathsJson: String)
 
     @Query("SELECT COUNT(*) FROM manga_chapters WHERE mangaId = :mangaId AND isDownloaded = 1")
     fun getDownloadedCountFlow(mangaId: String): Flow<Int>

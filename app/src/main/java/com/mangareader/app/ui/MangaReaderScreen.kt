@@ -46,7 +46,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun MangaReaderScreen(
     mangaId: String,
-    initialChapterIndex: Int,
+    initialChapterId: String,
     repository: MangaRepository,
     onBack: () -> Unit
 ) {
@@ -54,9 +54,18 @@ fun MangaReaderScreen(
     val prefs = remember { context.getSharedPreferences("manga_reader_prefs", android.content.Context.MODE_PRIVATE) }
     val scope = rememberCoroutineScope()
 
-    var chapterIndex by remember { mutableStateOf(initialChapterIndex) }
     val chapters by repository.getChaptersFlow(mangaId).collectAsState(initial = emptyList())
-    val chapter = chapters.find { it.chapterIndex == chapterIndex }
+    var chapterIndex by remember { androidx.compose.runtime.mutableIntStateOf(0) }
+    LaunchedEffect(chapters, initialChapterId) {
+        if (chapters.isNotEmpty() && chapterIndex == 0) {
+            val idx = chapters.indexOfFirst { it.chapterId == initialChapterId }
+            if (idx != -1) {
+                chapterIndex = idx
+            }
+        }
+    }
+
+    val chapter = chapters.getOrNull(chapterIndex)
 
     val hasPrevious = chapterIndex > 0
     val hasNext = chapters.isNotEmpty() && chapterIndex < chapters.size - 1
@@ -78,9 +87,10 @@ fun MangaReaderScreen(
 
     // 載入當前章節的圖片
     LaunchedEffect(mangaId, chapterIndex, chapter?.url) {
+        imageUrls = emptyList() // 清除前一章圖片避免殘留
         isLoadingImages = true
         errorMessage = null
-        val result = repository.getChapterImages(mangaId, chapterIndex)
+        val result = repository.getChapterImages(mangaId, chapter?.chapterId ?: "")
         if (result.isSuccess) {
             imageUrls = result.getOrNull() ?: emptyList()
         } else {
@@ -95,10 +105,20 @@ fun MangaReaderScreen(
     val lazyListState = rememberLazyListState()
 
     // 當閱讀進度改變時記憶頁數
-    val currentPageIndex = when (readMode) {
-        0 -> verticalPagerState.currentPage.coerceIn(0, (imageUrls.size - 1).coerceAtLeast(0))
-        1 -> lazyListState.firstVisibleItemIndex.coerceIn(0, (imageUrls.size - 1).coerceAtLeast(0))
-        else -> horizontalPagerState.currentPage.coerceIn(0, (imageUrls.size - 1).coerceAtLeast(0))
+    var currentPageIndex by remember { mutableStateOf(0) }
+
+    // 同步 Pager / LazyList 的滾動狀態到 currentPageIndex (若非復原中)
+    var isRestoring by remember { mutableStateOf(false) }
+
+    LaunchedEffect(verticalPagerState.currentPage, lazyListState.firstVisibleItemIndex, horizontalPagerState.currentPage, readMode) {
+        if (!isRestoring && imageUrls.isNotEmpty()) {
+            val newIndex = when (readMode) {
+                0 -> verticalPagerState.currentPage
+                1 -> lazyListState.firstVisibleItemIndex
+                else -> horizontalPagerState.currentPage
+            }
+            currentPageIndex = newIndex.coerceIn(0, (imageUrls.size - 1).coerceAtLeast(0))
+        }
     }
 
     // 翻頁輔助函式（支援向上/向下滑動或點擊上下區域）
@@ -132,25 +152,58 @@ fun MangaReaderScreen(
 
     // 進入章節時恢復上次閱讀頁數；切換章節時一律從第 1 頁 (index 0) 開始
     var isFirstLaunch by remember { mutableStateOf(true) }
-    LaunchedEffect(chapterIndex, imageUrls) {
-        if (imageUrls.isNotEmpty()) {
-            val targetPage = if (isFirstLaunch) {
-                isFirstLaunch = false
-                prefs.getInt("page_${mangaId}_${chapterIndex}", 0).coerceIn(0, imageUrls.size - 1)
-            } else {
-                0
-            }
-            when (readMode) {
-                0 -> verticalPagerState.scrollToPage(targetPage)
-                1 -> lazyListState.scrollToItem(targetPage)
-                else -> horizontalPagerState.scrollToPage(targetPage)
+
+    // 遷移舊的 chapterIndex 進度到 chapterId
+    LaunchedEffect(chapter) {
+        chapter?.let {
+            if (!prefs.contains("page_${mangaId}_${it.chapterId}") && prefs.contains("page_${mangaId}_${chapterIndex}")) {
+                val oldProgress = prefs.getInt("page_${mangaId}_${chapterIndex}", 0)
+                prefs.edit().putInt("page_${mangaId}_${it.chapterId}", oldProgress).apply()
+                prefs.edit().remove("page_${mangaId}_${chapterIndex}").apply()
             }
         }
     }
 
-    LaunchedEffect(chapterIndex, currentPageIndex) {
+    // 初始化時與切換模式時，同步當前的 targetPage 到 Pager/List
+    LaunchedEffect(chapterIndex, imageUrls, readMode) {
         if (imageUrls.isNotEmpty()) {
-            prefs.edit().putInt("page_${mangaId}_${chapterIndex}", currentPageIndex).apply()
+            isRestoring = true
+            val targetPage = if (isFirstLaunch) {
+                isFirstLaunch = false
+                // 如果已經遷移過了，就讀取新的 id key，否則會先 fallback 到舊的（或者0）以防萬一
+                val savedPage = if (prefs.contains("page_${mangaId}_${chapter?.chapterId ?: ""}")) {
+                    prefs.getInt("page_${mangaId}_${chapter?.chapterId ?: ""}", 0)
+                } else {
+                    prefs.getInt("page_${mangaId}_${chapterIndex}", 0)
+                }
+                savedPage.coerceIn(0, imageUrls.size - 1)
+            } else {
+                currentPageIndex.coerceIn(0, imageUrls.size - 1)
+            }
+
+            // Mode changed during reading, use current page; Chapter changed, reset to 0
+            val actualTarget = if (targetPage >= imageUrls.size) 0 else targetPage
+
+            when (readMode) {
+                0 -> verticalPagerState.scrollToPage(actualTarget)
+                1 -> lazyListState.scrollToItem(actualTarget)
+                else -> horizontalPagerState.scrollToPage(actualTarget)
+            }
+            currentPageIndex = actualTarget
+            isRestoring = false
+        }
+    }
+
+    LaunchedEffect(chapterIndex) {
+        if (!isFirstLaunch) {
+            currentPageIndex = 0
+            isRestoring = true
+        }
+    }
+
+    LaunchedEffect(chapterIndex, currentPageIndex) {
+        if (imageUrls.isNotEmpty() && !isRestoring) {
+            prefs.edit().putInt("page_${mangaId}_${chapter?.chapterId ?: ""}", currentPageIndex).apply()
             chapter?.let {
                 repository.updateReadingProgress(mangaId, it.chapterId, it.title, chapterIndex, currentPageIndex)
             }
@@ -209,7 +262,7 @@ fun MangaReaderScreen(
                         scope.launch {
                             isLoadingImages = true
                             errorMessage = null
-                            val res = repository.getChapterImages(mangaId, chapterIndex, forceRefresh = true)
+                            val res = repository.getChapterImages(mangaId, chapter?.chapterId ?: "", forceRefresh = true)
                             if (res.isSuccess) {
                                 imageUrls = res.getOrNull() ?: emptyList()
                             } else {
@@ -530,9 +583,24 @@ fun MangaImageItem(
     var scale by remember { mutableStateOf(1f) }
     var offset by remember { mutableStateOf(Offset.Zero) }
 
+    LaunchedEffect(imageUrl) {
+        scale = 1f
+        offset = Offset.Zero
+    }
+
     val transformState = rememberTransformableState { zoomChange, panChange, _ ->
         scale = (scale * zoomChange).coerceIn(1f, 3f)
-        offset = if (scale > 1f) offset + panChange else Offset.Zero
+        if (scale > 1f) {
+            val maxX = (scale - 1f) * 500f
+            val maxY = (scale - 1f) * 500f
+            val newOffset = offset + panChange
+            offset = androidx.compose.ui.geometry.Offset(
+                newOffset.x.coerceIn(-maxX, maxX),
+                newOffset.y.coerceIn(-maxY, maxY)
+            )
+        } else {
+            offset = androidx.compose.ui.geometry.Offset.Zero
+        }
     }
 
     Box(
@@ -549,7 +617,7 @@ fun MangaImageItem(
             )
             .transformable(
                 state = transformState,
-                enabled = (scale > 1.05f) // 只有雙指放大時才啟用，平時 1x 讓 VerticalPager 完全順暢滑動
+                enabled = true // 永遠啟用，transformable 預設就會忽略單指拖曳，所以不會干擾 Pager 翻頁
             ),
         contentAlignment = Alignment.Center
     ) {
