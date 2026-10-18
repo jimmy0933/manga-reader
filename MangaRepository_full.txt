@@ -1,0 +1,368 @@
+     1	package com.mangareader.app.data.repository
+     2
+     3	import android.content.Context
+     4	import androidx.room.withTransaction
+     5	import com.mangareader.app.data.local.*
+     6	import com.mangareader.app.network.NetworkClient
+     7	import com.mangareader.app.parser.ManhuarenParser
+     8	import com.mangareader.app.parser.MangaSearchResult
+     9	import kotlinx.coroutines.Dispatchers
+    10	import kotlinx.coroutines.flow.Flow
+    11	import kotlinx.coroutines.withContext
+    12	import okhttp3.Request
+    13	import org.json.JSONArray
+    14	import java.io.File
+    15	import java.io.FileOutputStream
+    16
+    17	data class MangaDownloadStatus(
+    18	    val mangaId: String,
+    19	    val mangaTitle: String,
+    20	    val current: Int,
+    21	    val total: Int,
+    22	    val currentChapterTitle: String,
+    23	    val isDownloading: Boolean
+    24	)
+    25
+    26	class MangaRepository(
+    27	    private val context: Context,
+    28	    private val database: MangaDatabase
+    29	) {
+    30
+    31	    private val mangaDao = database.mangaDao()
+    32	    private val chapterDao = database.mangaChapterDao()
+    33	    private val _downloadStatus = kotlinx.coroutines.flow.MutableStateFlow<MangaDownloadStatus?>(null)
+    34	    val downloadStatus: kotlinx.coroutines.flow.StateFlow<MangaDownloadStatus?> = _downloadStatus
+    35
+    36	    fun getAllManga(): Flow<List<MangaEntity>> = mangaDao.getAllMangaFlow()
+    37
+    38	    fun getMangaFlow(id: String): Flow<MangaEntity?> = mangaDao.getMangaFlow(id)
+    39
+    40	    fun getChaptersFlow(mangaId: String): Flow<List<MangaChapterEntity>> = chapterDao.getChaptersFlow(mangaId)
+    41
+    42	    suspend fun importMangaFromUrl(url: String, htmlContent: String? = null): Result<MangaEntity> = withContext(Dispatchers.IO) {
+    43	        try {
+    44	            val html = htmlContent ?: NetworkClient.getHtml(url)
+    45	            val parsed = ManhuarenParser.parseDetail(url, html)
+    46
+    47	            if (parsed.chapters.isEmpty()) {
+    48	                return@withContext Result.failure(Exception("解析失敗，目錄為空"))
+    49	            }
+    50
+    51	            val savedManga = database.withTransaction {
+    52	                val existing = mangaDao.getMangaById(parsed.id)
+    53	                val manga = MangaEntity(
+    54	                    id = parsed.id,
+    55	                    title = parsed.title,
+    56	                    author = parsed.author,
+    57	                    coverUrl = parsed.coverUrl,
+    58	                    intro = parsed.intro,
+    59	                    sourceUrl = parsed.sourceUrl,
+    60	                    latestChapterTitle = parsed.latestChapterTitle,
+    61	                    lastReadChapterId = existing?.lastReadChapterId ?: parsed.chapters.firstOrNull()?.chapterId,
+    62	                    lastReadChapterTitle = existing?.lastReadChapterTitle ?: parsed.chapters.firstOrNull()?.title,
+    63	                    lastReadChapterIndex = existing?.lastReadChapterIndex ?: 0,
+    64	                    lastReadPageIndex = existing?.lastReadPageIndex ?: 0,
+    65	                    lastReadTime = System.currentTimeMillis(),
+    66	                    totalChapters = parsed.chapters.size,
+    67	                    downloadedChapters = existing?.downloadedChapters ?: 0,
+    68	                    isFavorite = true
+    69	                )
+    70
+    71	                mangaDao.insertManga(manga)
+    72
+    73	                val existingChapters = chapterDao.getChapters(parsed.id)
+    74	                val existingDownloadedMap = existingChapters.associateBy { it.chapterId }
+    75	                chapterDao.deleteChaptersByMangaId(parsed.id)
+    76
+    77	                val chapterEntities = parsed.chapters.map { ch ->
+    78	                    val prev = existingDownloadedMap[ch.chapterId]
+    79	                    var migratedPathsJson = prev?.localImagePathsJson
+    80
+    81	                    if (prev != null && prev.isDownloaded) {
+    82	                        val oldDir = java.io.File(context.filesDir, "manga/${parsed.id}/${ch.chapterIndex}")
+    83	                        val newDir = java.io.File(context.filesDir, "manga/${parsed.id}/${ch.chapterId}")
+    84	                        if (oldDir.exists() && oldDir.isDirectory && !newDir.exists()) {
+    85	                            oldDir.renameTo(newDir)
+    86	                        }
+    87	                        if (migratedPathsJson != null && migratedPathsJson!!.contains("/manga/${parsed.id}/${ch.chapterIndex}/")) {
+    88	                            migratedPathsJson = migratedPathsJson!!.replace("/manga/${parsed.id}/${ch.chapterIndex}/", "/manga/${parsed.id}/${ch.chapterId}/")
+    89	                        }
+    90	                    }
+    91	                    MangaChapterEntity(
+    92	                        mangaId = manga.id,
+    93	                        chapterIndex = ch.chapterIndex,
+    94	                        chapterId = ch.chapterId,
+    95	                        title = ch.title,
+    96	                        url = ch.url,
+    97	                        imageUrlsJson = prev?.imageUrlsJson,
+    98	                        localImagePathsJson = migratedPathsJson,
+    99	                        pageCount = prev?.pageCount ?: 0,
+   100	                        isDownloaded = prev?.isDownloaded ?: false
+   101	                    )
+   102	                }
+   103	                chapterDao.insertChapters(chapterEntities)
+   104	                mangaDao.refreshDownloadedCount(parsed.id)
+   105	                manga
+   106	            }
+   107
+   108	            Result.success(savedManga)
+   109	        } catch (e: Exception) {
+   110	            Result.failure(e)
+   111	        }
+   112	    }
+   113
+   114	    suspend fun searchManga(query: String): Result<List<MangaSearchResult>> = withContext(Dispatchers.IO) {
+   115	        try {
+   116	            val encodedQuery = java.net.URLEncoder.encode(query.trim(), "UTF-8")
+   117	            val searchUrl = "${ManhuarenParser.BASE_URL}/search?title=$encodedQuery"
+   118	            val html = NetworkClient.getHtml(searchUrl)
+   119	            val results = ManhuarenParser.parseSearchResults(html)
+   120	            Result.success(results)
+   121	        } catch (e: Exception) {
+   122	            Result.failure(e)
+   123	        }
+   124	    }
+   125
+   126	    suspend fun syncLatestChapters(mangaId: String): Result<Int> = withContext(Dispatchers.IO) {
+   127	        try {
+   128	            val manga = mangaDao.getMangaById(mangaId)
+   129	                ?: return@withContext Result.failure(Exception("找不到該漫畫"))
+   130
+   131	            val html = NetworkClient.getHtml(manga.sourceUrl)
+   132	            val parsed = ManhuarenParser.parseDetail(manga.sourceUrl, html)
+   133
+   134	            if (parsed.chapters.isEmpty()) {
+   135	                return@withContext Result.failure(Exception("解析失敗，目錄為空"))
+   136	            }
+   137
+   138	            var newCount = 0
+   139	            database.withTransaction {
+   140	                val existingChapters = chapterDao.getChapters(mangaId)
+   141	                val existingDownloadedMap = existingChapters.associateBy { it.chapterId }
+   142	                val existingUrls = existingChapters.map { it.url }.toSet()
+   143
+   144	                newCount = parsed.chapters.count { !existingUrls.contains(it.url) }
+   145
+   146	                val updatedEntities = parsed.chapters.map { ch ->
+   147	                    val prev = existingDownloadedMap[ch.chapterId]
+   148	                    var migratedPathsJson = prev?.localImagePathsJson
+   149
+   150	                    if (prev != null && prev.isDownloaded) {
+   151	                        val oldDir = java.io.File(context.filesDir, "manga/$mangaId/${ch.chapterIndex}")
+   152	                        val newDir = java.io.File(context.filesDir, "manga/$mangaId/${ch.chapterId}")
+   153	                        if (oldDir.exists() && oldDir.isDirectory && !newDir.exists()) {
+   154	                            oldDir.renameTo(newDir)
+   155	                        }
+   156	                        if (migratedPathsJson != null && migratedPathsJson!!.contains("/manga/$mangaId/${ch.chapterIndex}/")) {
+   157	                            migratedPathsJson = migratedPathsJson!!.replace("/manga/$mangaId/${ch.chapterIndex}/", "/manga/$mangaId/${ch.chapterId}/")
+   158	                        }
+   159	                    }
+   160	                    MangaChapterEntity(
+   161	                        mangaId = mangaId,
+   162	                        chapterIndex = ch.chapterIndex,
+   163	                        chapterId = ch.chapterId,
+   164	                        title = ch.title,
+   165	                        url = ch.url,
+   166	                        imageUrlsJson = prev?.imageUrlsJson,
+   167	                        localImagePathsJson = migratedPathsJson,
+   168	                        pageCount = prev?.pageCount ?: 0,
+   169	                        isDownloaded = prev?.isDownloaded ?: false
+   170	                    )
+   171	                }
+   172
+   173	                chapterDao.deleteChaptersByMangaId(mangaId)
+   174	                chapterDao.insertChapters(updatedEntities)
+   175	                mangaDao.updateTotalChapters(mangaId, updatedEntities.size)
+   176	                if (parsed.latestChapterTitle.isNotBlank()) {
+   177	                    mangaDao.updateLatestChapterTitle(mangaId, parsed.latestChapterTitle)
+   178	                }
+   179
+   180	                val manga = mangaDao.getMangaById(mangaId)
+   181	                if (manga?.lastReadChapterId != null) {
+   182	                    val newIndex = updatedEntities.indexOfFirst { it.chapterId == manga.lastReadChapterId }
+   183	                    if (newIndex != -1 && newIndex != manga.lastReadChapterIndex) {
+   184	                        mangaDao.updateReadingProgress(
+   185	                            mangaId,
+   186	                            manga.lastReadChapterId,
+   187	                            manga.lastReadChapterTitle ?: "",
+   188	                            newIndex,
+   189	                            manga.lastReadPageIndex
+   190	                        )
+   191	                    }
+   192	                }
+   193
+   194	                mangaDao.refreshDownloadedCount(mangaId)
+   195	            }
+   196
+   197	            Result.success(newCount)
+   198	        } catch (e: Exception) {
+   199	            Result.failure(e)
+   200	        }
+   201	    }
+   202
+   203	    suspend fun getChapterImages(mangaId: String, chapterId: String, forceRefresh: Boolean = false): Result<List<String>> = withContext(Dispatchers.IO) {
+   204	        try {
+   205	            val chapter = chapterDao.getChapterById(mangaId, chapterId)
+   206	                ?: return@withContext Result.failure(Exception("章節不存在"))
+   207
+   208	            // 1. If downloaded locally, return local file paths
+   209	            if (chapter.isDownloaded && !chapter.localImagePathsJson.isNullOrBlank()) {
+   210	                val arr = JSONArray(chapter.localImagePathsJson)
+   211	                val list = mutableListOf<String>()
+   212	                for (i in 0 until arr.length()) {
+   213	                    list.add(arr.getString(i))
+   214	                }
+   215	                if (list.isNotEmpty()) {
+   216	                    return@withContext Result.success(list)
+   217	                }
+   218	            }
+   219
+   220	            // 2. If cached remotely and not forced refresh, return cached URLs
+   221	            if (!forceRefresh && !chapter.imageUrlsJson.isNullOrBlank()) {
+   222	                val arr = JSONArray(chapter.imageUrlsJson)
+   223	                val list = mutableListOf<String>()
+   224	                for (i in 0 until arr.length()) {
+   225	                    list.add(arr.getString(i))
+   226	                }
+   227	                if (list.isNotEmpty()) {
+   228	                    return@withContext Result.success(list)
+   229	                }
+   230	            }
+   231
+   232	            // 3. Fetch chapter HTML and unpack Dean Edwards packer
+   233	            val html = NetworkClient.getHtml(chapter.url)
+   234	            val images = ManhuarenParser.unpackChapterImages(html)
+   235
+   236	            if (images.isEmpty()) {
+   237	                return@withContext Result.failure(Exception("解析漫畫圖片失敗，該章節可能需要付費或需等待載入。"))
+   238	            }
+   239
+   240	            // Cache to database
+   241	            val jsonArr = JSONArray()
+   242	            images.forEach { jsonArr.put(it) }
+   243	            chapterDao.saveChapterImages(mangaId, chapterId, jsonArr.toString(), images.size)
+   244
+   245	            Result.success(images)
+   246	        } catch (e: Exception) {
+   247	            Result.failure(e)
+   248	        }
+   249	    }
+   250
+   251	    suspend fun downloadChapter(mangaId: String, chapterId: String): Result<Int> = withContext(Dispatchers.IO) {
+   252	        try {
+   253	            val imagesRes = getChapterImages(mangaId, chapterId)
+   254	            if (imagesRes.isFailure) return@withContext Result.failure(imagesRes.exceptionOrNull()!!)
+   255	            val imageUrls = imagesRes.getOrNull() ?: emptyList()
+   256	            if (imageUrls.isEmpty()) return@withContext Result.failure(Exception("無可下載圖片"))
+   257
+   258	            val mangaDir = java.io.File(context.filesDir, "manga/$mangaId/$chapterId")
+   259	            if (!mangaDir.exists()) mangaDir.mkdirs()
+   260
+   261	            val localPaths = mutableListOf<String>()
+   262	            val client = NetworkClient.imageOkHttpClient
+   263
+   264	            imageUrls.forEachIndexed { idx, url ->
+   265	                val ext = if (url.contains(".png")) "png" else "jpg"
+   266	                val file = java.io.File(mangaDir, "page_${idx + 1}.$ext")
+   267	                if (!file.exists() || file.length() == 0L) {
+   268	                    val tmpFile = java.io.File(mangaDir, "page_${idx + 1}.tmp")
+   269	                    val req = Request.Builder().url(url).build()
+   270	                    client.newCall(req).execute().use { resp ->
+   271	                        if (resp.isSuccessful) {
+   272	                            resp.body?.byteStream()?.use { input ->
+   273	                                java.io.FileOutputStream(tmpFile).use { output ->
+   274	                                    input.copyTo(output)
+   275	                                }
+   276	                            }
+   277
+   278	                            val options = android.graphics.BitmapFactory.Options().apply {
+   279	                                inJustDecodeBounds = true
+   280	                            }
+   281	                            android.graphics.BitmapFactory.decodeFile(tmpFile.absolutePath, options)
+   282
+   283	                            if (options.outWidth > 0 && options.outHeight > 0) {
+   284	                                tmpFile.renameTo(file)
+   285	                            } else {
+   286	                                tmpFile.delete()
+   287	                                throw Exception("圖片第 ${idx + 1} 頁損毀或無效")
+   288	                            }
+   289	                        } else {
+   290	                            throw Exception("圖片第 ${idx + 1} 頁下載失敗: HTTP ${resp.code}")
+   291	                        }
+   292	                    }
+   293	                }
+   294	                localPaths.add("file://${file.absolutePath}")
+   295	            }
+   296
+   297	            if (localPaths.size == imageUrls.size) {
+   298	                val jsonArr = org.json.JSONArray()
+   299	                localPaths.forEach { jsonArr.put(it) }
+   300	                chapterDao.saveChapterDownloadPaths(mangaId, chapterId, jsonArr.toString())
+   301	                mangaDao.refreshDownloadedCount(mangaId)
+   302	            } else {
+   303	                throw Exception("下載頁數不符")
+   304	            }
+   305
+   306	            Result.success(localPaths.size)
+   307	        } catch (e: Exception) {
+   308	            Result.failure(e)
+   309	        }
+   310	    }
+   311
+   312	    fun downloadAllChapters(mangaId: String) {
+   313	        val req = androidx.work.OneTimeWorkRequestBuilder<com.mangareader.app.worker.MangaDownloadWorker>()
+   314	            .setInputData(androidx.work.workDataOf("mangaId" to mangaId))
+   315	            .build()
+   316	        androidx.work.WorkManager.getInstance(context).enqueueUniqueWork(
+   317	            "download_manga_$mangaId",
+   318	            androidx.work.ExistingWorkPolicy.KEEP,
+   319	            req
+   320	        )
+   321	    }
+   322
+   323	    suspend fun processDownloadQueue(mangaId: String) {
+   324	        val manga = mangaDao.getMangaById(mangaId) ?: return
+   325	        val pending = chapterDao.getPendingDownloadChapters(mangaId)
+   326	        if (pending.isEmpty()) return
+   327
+   328	        var failed = 0
+   329	        try {
+   330	            pending.forEachIndexed { i, ch ->
+   331	                val statusText = if (failed > 0) "${ch.title} (已有 $failed 章失敗)" else ch.title
+   332	                _downloadStatus.value = MangaDownloadStatus(
+   333	                    mangaId = mangaId,
+   334	                    mangaTitle = manga.title,
+   335	                    current = i + 1,
+   336	                    total = pending.size,
+   337	                    currentChapterTitle = statusText,
+   338	                    isDownloading = true
+   339	                )
+   340	                try {
+   341	                    val result = downloadChapter(mangaId, ch.chapterId)
+   342	                    if (result.isFailure) failed++
+   343	                } catch (e: Exception) {
+   344	                    failed++
+   345	                }
+   346	            }
+   347	            if (failed > 0) {
+   348	                throw Exception("下載完成，但有 $failed 話失敗，請重新下載或檢查網路")
+   349	            }
+   350	        } finally {
+   351	            _downloadStatus.value = null
+   352	        }
+   353	    }
+   354
+   355	    suspend fun updateReadingProgress(mangaId: String, chapterId: String, chapterTitle: String, chapterIndex: Int, pageIndex: Int) {
+   356	        mangaDao.updateReadingProgress(mangaId, chapterId, chapterTitle, chapterIndex, pageIndex)
+   357	    }
+   358
+   359	    suspend fun deleteManga(manga: MangaEntity) = withContext(Dispatchers.IO) {
+   360	        androidx.work.WorkManager.getInstance(context).cancelUniqueWork("download_manga_${manga.id}")
+   361	        // Delete local files
+   362	        val dir = File(context.filesDir, "manga/${manga.id}")
+   363	        if (dir.exists()) dir.deleteRecursively()
+   364
+   365	        chapterDao.deleteChaptersByMangaId(manga.id)
+   366	        mangaDao.deleteManga(manga)
+   367	    }
+   368	}
