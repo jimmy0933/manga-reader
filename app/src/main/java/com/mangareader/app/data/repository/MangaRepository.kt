@@ -23,6 +23,9 @@ data class MangaDownloadStatus(
     val isDownloading: Boolean
 )
 
+private val globalMangaMutexes = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.sync.Mutex>()
+private fun getMangaMutex(mangaId: String) = globalMangaMutexes.getOrPut(mangaId) { kotlinx.coroutines.sync.Mutex() }
+
 class MangaRepository(
     private val context: Context,
     private val database: MangaDatabase
